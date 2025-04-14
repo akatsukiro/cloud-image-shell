@@ -55,6 +55,42 @@ generate_v4_signature() {
     echo -en "$string_to_sign" | openssl dgst -sha256 -mac HMAC -macopt "hexkey:${kSigning}" | awk '{print $2}'
 }
 
+# ---------- SSH密钥管理 ----------
+setup_ssh_keys() {
+    log_info "======== 生成SSH密钥对 ========"
+    {
+        set -x
+        # 清理旧密钥
+        rm -f ssh_key ssh_key.pub
+        
+        # 生成新密钥
+        ssh-keygen -t rsa -f ssh_key -N '' -q
+        
+        # 写入authorized_keys
+        cat ssh_key.pub > http/authorized_keys
+        
+        # 处理user-data模板
+        if [[ ! -f "http/user-data.template" ]]; then
+            if [[ -f "http/user-data" ]]; then
+                log_warning "user-data模板不存在，尝试从现有user-data创建模板"
+                cp http/user-data http/user-data.template
+                # 将实际密钥替换为占位符
+                sed -i "s|$(cat ssh_key.pub)|ssh-key-placeholder|g" http/user-data.template
+                log_info "已创建模板文件：http/user-data.template"
+            else
+                log_error "user-data模板文件不存在且未找到现有user-data文件"
+            fi
+        fi
+        
+        log_info "生成user-data文件..."
+        cp http/user-data.template http/user-data
+        sed -i "s|ssh-key-placeholder|$(cat ssh_key.pub)|" http/user-data
+        log_info "已更新user-data文件中的SSH公钥"
+        
+        set +x
+    } |& tee -a "$LOG_FILE"
+}
+
 # ---------- 构建镜像部分 ----------
 build_images() {
     # 清理旧构建文件
@@ -298,6 +334,7 @@ upload_images() {
 # ---------- 主流程 ----------
 main() {
     log_info "======== 开始执行构建流程 ========"
+    setup_ssh_keys
     build_images
     
     log_info "======== 创建上传目录 ========"
