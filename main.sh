@@ -1,6 +1,33 @@
 #!/bin/bash
 set -eo pipefail
 
+# 彩色输出定义
+color_red='\033[1;31m'
+color_green='\033[1;32m'
+color_yellow='\033[1;33m'
+color_blue='\033[1;34m'
+color_reset='\033[0m'
+
+# 全局日志函数
+log_info()    { echo -e "${color_blue}[INFO] $(date +'%Y-%m-%d %T') $*${color_reset}" | tee -a "$LOG_FILE"; }
+log_warning() { echo -e "${color_yellow}[WARN] $(date +'%Y-%m-%d %T') $*${color_reset}" | tee -a "$LOG_FILE"; }
+log_error()   { echo -e "${color_red}[ERROR] $(date +'%Y-%m-%d %T') $*${color_reset}" | tee -a "$LOG_FILE"; exit 1; }
+
+# 默认日志文件
+: ${LOG_FILE:=minio_upload.log}
+
+# 加载环境变量
+if [ -f .env ]; then
+    log_info "加载 .env 文件中的环境变量..."
+    # 使用更安全的方式加载环境变量
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # 跳过注释和空行
+        [[ "$line" =~ ^#.*$ || -z "$line" ]] && continue
+        # 导出环境变量
+        export "$line"
+    done < .env
+fi
+
 # 配置信息（从环境变量获取）
 : ${MINIO_URL:?"必须设置MINIO_URL环境变量"}
 : ${MINIO_ACCESS_KEY:?"必须设置MINIO_ACCESS_KEY环境变量"}
@@ -13,20 +40,7 @@ set -eo pipefail
 : ${UPLOAD_DIR:=$(date +%Y%m%d)}
 : ${MAX_RETRIES:=3}
 : ${TIMEOUT:=300}
-: ${LOG_FILE:=minio_upload.log}
 : ${SHA_FILE:=SHA256SUMS}
-
-# 彩色输出定义
-color_red='\033[1;31m'
-color_green='\033[1;32m'
-color_yellow='\033[1;33m'
-color_blue='\033[1;34m'
-color_reset='\033[0m'
-
-# 全局日志函数
-log_info()    { echo -e "${color_blue}[INFO] $(date +'%Y-%m-%d %T') $*${color_reset}" | tee -a "$LOG_FILE"; }
-log_warning() { echo -e "${color_yellow}[WARN] $(date +'%Y-%m-%d %T') $*${color_reset}" | tee -a "$LOG_FILE"; }
-log_error()   { echo -e "${color_red}[ERROR] $(date +'%Y-%m-%d %T') $*${color_reset}" | tee -a "$LOG_FILE"; exit 1; }
 
 # ---------- 签名生成函数 ----------
 generate_v2_signature() {
