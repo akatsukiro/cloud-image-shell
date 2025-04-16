@@ -83,26 +83,128 @@ setup_ssh_keys() {
         # 写入authorized_keys
         cat ssh_key.pub > http/authorized_keys
         
+        set +x
+    } |& tee -a "$LOG_FILE"
+}
+
+# ---------- Cloud-Init模板管理 ----------
+setup_cloud_init_template() {
+    log_info "======== 初始化Cloud-Init模板 ========"
+    {
+        set -x
+        
         # 处理user-data模板
         if [[ ! -f "http/user-data.template" ]]; then
             if [[ -f "http/user-data" ]]; then
                 log_warning "user-data模板不存在，尝试从现有user-data创建模板"
+                
+                # 创建临时文件
                 cp http/user-data http/user-data.template
+                
                 # 将实际密钥替换为占位符
                 sed -i "s|$(cat ssh_key.pub)|ssh-key-placeholder|g" http/user-data.template
+                
+                # 确保DNS配置使用占位符
+                # 先检查是否已有DNS配置
+                if grep -q "nameservers:" http/user-data.template; then
+                    sed -i "/nameservers:/,+1 s/addresses:.*/addresses: [dns-placeholder]/g" http/user-data.template
+                else
+                    # 添加DNS配置占位符到dhcp4配置后
+                    sed -i '/dhcp4: yes/a\      nameservers:\n        addresses: [dns-placeholder]' http/user-data.template
+                fi
+                
+                # 确保网关配置使用占位符
+                if grep -q "gateway4:" http/user-data.template; then
+                    sed -i "s/gateway4:.*/gateway4: gateway-placeholder/g" http/user-data.template
+                else
+                    # 添加网关配置占位符到dhcp4配置后
+                    sed -i '/dhcp4: yes/a\      gateway4: gateway-placeholder' http/user-data.template
+                fi
+                
                 log_info "已创建模板文件：http/user-data.template"
             else
-                log_error "user-data模板文件不存在且未找到现有user-data文件"
+                # 如果没有现有文件，创建一个基本模板
+                log_warning "未找到现有user-data文件，创建基本模板"
+                cat > http/user-data.template << EOF
+#cloud-config
+ssh_pwauth: false
+disable_root: false
+
+users:
+  - name: builder
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ssh-key-placeholder
+
+version: 2
+network:
+  version: 2
+  renderer: auto
+  ethernets:
+    eth0:
+      dhcp4: yes
+      gateway4: gateway-placeholder
+      nameservers:
+        addresses: [dns-placeholder]
+EOF
+                log_info "已创建基本模板文件：http/user-data.template"
+            fi
+        else
+            # 如果已有模板文件，确保包含DNS占位符
+            log_info "使用现有user-data.template"
+            
+            if ! grep -q "dns-placeholder" http/user-data.template; then
+                log_warning "现有模板中不包含DNS占位符，添加DNS配置"
+                if grep -q "nameservers:" http/user-data.template; then
+                    # 更新现有DNS配置
+                    sed -i "/nameservers:/,+1 s/addresses:.*/addresses: [dns-placeholder]/g" http/user-data.template
+                else
+                    # 添加DNS配置占位符
+                    sed -i '/dhcp4: yes/a\      nameservers:\n        addresses: [dns-placeholder]' http/user-data.template
+                fi
+            fi
+            
+            if ! grep -q "gateway-placeholder" http/user-data.template; then
+                log_warning "现有模板中不包含网关占位符，添加网关配置"
+                if grep -q "gateway4:" http/user-data.template; then
+                    # 更新现有网关配置
+                    sed -i "s/gateway4:.*/gateway4: gateway-placeholder/g" http/user-data.template
+                else
+                    # 添加网关配置占位符
+                    sed -i '/dhcp4: yes/a\      gateway4: gateway-placeholder' http/user-data.template
+                fi
             fi
         fi
         
-        log_info "生成user-data文件..."
-        cp http/user-data.template http/user-data
-        sed -i "s|ssh-key-placeholder|$(cat ssh_key.pub)|" http/user-data
-        log_info "已更新user-data文件中的SSH公钥"
-        
         set +x
     } |& tee -a "$LOG_FILE"
+}
+
+# ---------- 根据cn_flag配置cloudinit IP ----------
+configure_cloud_init() {
+    local cn_flag="$1"
+    
+    log_info "配置cloudinit和SSH （cn_flag=${cn_flag}）..."
+    cp http/user-data.template http/user-data
+    
+    # 替换SSH密钥占位符
+    sed -i "s|ssh-key-placeholder|$(cat ssh_key.pub)|g" http/user-data
+    
+    # 配置网关
+    log_info "设置网关: 10.114.51.4"
+    sed -i "s|gateway-placeholder|10.114.51.4|g" http/user-data
+    
+    # 配置DNS
+    if [ "$cn_flag" = "true" ]; then
+        # 使用境内DNS
+        log_info "设置境内DNS: 223.5.5.5"
+        sed -i "s|dns-placeholder|223.5.5.5|g" http/user-data
+    else
+        # 使用默认DNS
+        log_info "设置默认DNS: 1.1.1.1"
+        sed -i "s|dns-placeholder|1.1.1.1|g" http/user-data
+    fi
 }
 
 # ---------- 构建镜像部分 ----------
@@ -156,10 +258,12 @@ build_images() {
 
         # 带CN标志的构建
         log_info "执行大陆镜像构建: ${hcl_file}"
+        configure_cloud_init "true"
         build_with_retry "sudo -E packer build -var 'cn_flag=true' $hcl_file" || log_error "构建失败: ${hcl_file} (CN模式) 超过最大重试次数"
         
         # 标准构建
         log_info "执行标准构建: ${hcl_file}"
+        configure_cloud_init "false"
         build_with_retry "sudo -E packer build $hcl_file" || log_error "构建失败: ${hcl_file} 超过最大重试次数"
     }
 
@@ -358,6 +462,7 @@ upload_images() {
 main() {
     log_info "======== 开始执行构建流程 ========"
     setup_ssh_keys
+    setup_cloud_init_template
     build_images
     
     log_info "======== 创建上传目录 ========"
