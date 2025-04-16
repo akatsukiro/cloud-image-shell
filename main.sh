@@ -99,7 +99,10 @@ build_images() {
 
     # 定义构建系统列表
     systems=(
-        "centos 7"
+        "almalinux 8"
+        "almalinux 9"
+        "rocky 8"
+        "rocky 9"
         "ubuntu 20"
         "ubuntu 22"
         "ubuntu 24"
@@ -278,6 +281,10 @@ upload_images() {
         "./output-almalinux-8-cn/almalinux-8-cn.img"
         "./output-almalinux-9/almalinux-9.img"
         "./output-almalinux-9-cn/almalinux-9-cn.img"
+        "./output-rocky-8/rocky-8.img"
+        "./output-rocky-8-cn/rocky-8-cn.img"
+        "./output-rocky-9/rocky-9.img"
+        "./output-rocky-9-cn/rocky-9-cn.img"
         "./output-debian-12/debian-12.img"
         "./output-debian-12-cn/debian-12-cn.img"
         "./output-debian-11/debian-11.img"
