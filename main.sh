@@ -93,39 +93,11 @@ setup_cloud_init_template() {
     {
         set -x
         
-        # 处理user-data模板
+        # 处理user-data模板，只考虑两种情况：有模板或没有模板
         if [[ ! -f "http/user-data.template" ]]; then
-            if [[ -f "http/user-data" ]]; then
-                log_warning "user-data模板不存在，尝试从现有user-data创建模板"
-                
-                # 创建临时文件
-                cp http/user-data http/user-data.template
-                
-                # 将实际密钥替换为占位符
-                sed -i "s|$(cat ssh_key.pub)|ssh-key-placeholder|g" http/user-data.template
-                
-                # 确保DNS配置使用占位符
-                # 先检查是否已有DNS配置
-                if grep -q "nameservers:" http/user-data.template; then
-                    sed -i "/nameservers:/,+1 s/addresses:.*/addresses: [dns-placeholder]/g" http/user-data.template
-                else
-                    # 添加DNS配置占位符到dhcp4配置后
-                    sed -i '/dhcp4: yes/a\      nameservers:\n        addresses: [dns-placeholder]' http/user-data.template
-                fi
-                
-                # 确保网关配置使用占位符
-                if grep -q "gateway4:" http/user-data.template; then
-                    sed -i "s/gateway4:.*/gateway4: gateway-placeholder/g" http/user-data.template
-                else
-                    # 添加网关配置占位符到dhcp4配置后
-                    sed -i '/dhcp4: yes/a\      gateway4: gateway-placeholder' http/user-data.template
-                fi
-                
-                log_info "已创建模板文件：http/user-data.template"
-            else
-                # 如果没有现有文件，创建一个基本模板
-                log_warning "未找到现有user-data文件，创建基本模板"
-                cat > http/user-data.template << EOF
+            # 如果没有模板文件，创建一个基本模板
+            log_info "未找到模板文件，创建基本模板"
+            cat > http/user-data.template << EOF
 #cloud-config
 ssh_pwauth: false
 disable_root: false
@@ -148,12 +120,17 @@ network:
       nameservers:
         addresses: [dns-placeholder]
 EOF
-                log_info "已创建基本模板文件：http/user-data.template"
-            fi
+            log_info "已创建基本模板文件：http/user-data.template"
         else
-            # 如果已有模板文件，确保包含DNS占位符
-            log_info "使用现有user-data.template"
+            # 如果已有模板文件，确保包含必要的占位符
+            log_info "使用现有user-data.template模板"
             
+            # 确保包含SSH密钥占位符
+            if ! grep -q "ssh-key-placeholder" http/user-data.template; then
+                log_warning "现有模板中不包含SSH密钥占位符，请确保模板中包含 'ssh-key-placeholder'"
+            fi
+            
+            # 确保包含DNS占位符
             if ! grep -q "dns-placeholder" http/user-data.template; then
                 log_warning "现有模板中不包含DNS占位符，添加DNS配置"
                 if grep -q "nameservers:" http/user-data.template; then
@@ -165,6 +142,7 @@ EOF
                 fi
             fi
             
+            # 确保包含网关占位符
             if ! grep -q "gateway-placeholder" http/user-data.template; then
                 log_warning "现有模板中不包含网关占位符，添加网关配置"
                 if grep -q "gateway4:" http/user-data.template; then
