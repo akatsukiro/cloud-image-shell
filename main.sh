@@ -274,8 +274,10 @@ upload_images() {
 
     # 文件列表
     local files=(
-        "./output-centos/centos-7.img"
-        "./output-centos-cn/centos-7-cn.img"
+        "./output-almalinux-8/almalinux-8.img"
+        "./output-almalinux-8-cn/almalinux-8-cn.img"
+        "./output-almalinux-9/almalinux-9.img"
+        "./output-almalinux-9-cn/almalinux-9-cn.img"
         "./output-debian-12/debian-12.img"
         "./output-debian-12-cn/debian-12-cn.img"
         "./output-debian-11/debian-11.img"
