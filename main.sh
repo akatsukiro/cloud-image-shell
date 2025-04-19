@@ -112,12 +112,14 @@ users:
 version: 2
 network:
   version: 2
-  renderer: auto
+  renderer: networkd
   ethernets:
     eth0:
       dhcp4: no
       addresses: [ip-placeholder/24]
-      gateway4: gateway-placeholder
+      routes:
+        - to: default
+          via: gateway-placeholder
       nameservers:
         addresses: [dns-placeholder]
 EOF
@@ -164,15 +166,31 @@ EOF
                 fi
             fi
             
-            # 确保包含网关占位符
-            if ! grep -q "gateway-placeholder" http/user-data.template; then
-                log_warning "现有模板中不包含网关占位符，添加网关配置"
-                if grep -q "gateway4:" http/user-data.template; then
-                    # 更新现有网关配置
-                    sed -i "s/gateway4:.*/gateway4: gateway-placeholder/g" http/user-data.template
+            # 处理网关配置：将gateway/gateway4转换为routes格式
+            if grep -q "gateway:" http/user-data.template || grep -q "gateway4:" http/user-data.template; then
+                log_warning "现有模板使用过时的gateway/gateway4配置，替换为routes配置"
+                # 删除旧的gateway或gateway4行
+                sed -i '/gateway4:/d' http/user-data.template
+                sed -i '/gateway:/d' http/user-data.template
+                # 添加routes配置
+                if ! grep -q "routes:" http/user-data.template; then
+                    sed -i '/addresses: \[ip-placeholder\/24\]/a\      routes:\n        - to: default\n          via: gateway-placeholder' http/user-data.template
+                fi
+            elif ! grep -q "routes:" http/user-data.template; then
+                log_warning "现有模板中不包含routes配置，添加routes配置"
+                sed -i '/addresses: \[ip-placeholder\/24\]/a\      routes:\n        - to: default\n          via: gateway-placeholder' http/user-data.template
+            elif ! grep -q "gateway-placeholder" http/user-data.template; then
+                log_warning "routes配置中不包含网关占位符，添加网关占位符"
+                sed -i '/via:/s/via:.*/via: gateway-placeholder/' http/user-data.template
+            fi
+            
+            # 设置renderer为networkd
+            if ! grep -q "renderer: networkd" http/user-data.template; then
+                log_warning "现有模板未指定renderer为networkd，更新配置"
+                if grep -q "renderer:" http/user-data.template; then
+                    sed -i 's/renderer:.*/renderer: networkd/' http/user-data.template
                 else
-                    # 添加网关配置占位符
-                    sed -i '/addresses: \[ip-placeholder\/24\]/a\      gateway4: gateway-placeholder' http/user-data.template
+                    sed -i '/network:/a\  renderer: networkd' http/user-data.template
                 fi
             fi
         fi
