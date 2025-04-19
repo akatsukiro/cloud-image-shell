@@ -115,7 +115,8 @@ network:
   renderer: auto
   ethernets:
     eth0:
-      dhcp4: yes
+      dhcp4: no
+      addresses: [ip-placeholder/24]
       gateway4: gateway-placeholder
       nameservers:
         addresses: [dns-placeholder]
@@ -130,6 +131,27 @@ EOF
                 log_warning "现有模板中不包含SSH密钥占位符，请确保模板中包含 'ssh-key-placeholder'"
             fi
             
+            # 确保IP配置正确
+            if grep -q "dhcp4: yes" http/user-data.template; then
+                # 将dhcp4改为静态IP配置
+                log_warning "现有模板使用DHCP，修改为静态IP配置"
+                sed -i 's/dhcp4: yes/dhcp4: no/' http/user-data.template
+                # 添加IP地址配置
+                if ! grep -q "addresses:" http/user-data.template || ! grep -q "ip-placeholder" http/user-data.template; then
+                    sed -i '/dhcp4: no/a\      addresses: [ip-placeholder/24]' http/user-data.template
+                fi
+            elif ! grep -q "ip-placeholder" http/user-data.template; then
+                # 确保有IP地址占位符
+                log_warning "现有模板中不包含IP地址占位符，添加IP配置"
+                if grep -q "addresses:" http/user-data.template; then
+                    # 更新现有IP配置
+                    sed -i '/addresses:/s/\[[^]]*\]/[ip-placeholder\/24]/' http/user-data.template
+                else
+                    # 添加IP配置占位符
+                    sed -i '/dhcp4: no/a\      addresses: [ip-placeholder/24]' http/user-data.template
+                fi
+            fi
+            
             # 确保包含DNS占位符
             if ! grep -q "dns-placeholder" http/user-data.template; then
                 log_warning "现有模板中不包含DNS占位符，添加DNS配置"
@@ -138,7 +160,7 @@ EOF
                     sed -i "/nameservers:/,+1 s/addresses:.*/addresses: [dns-placeholder]/g" http/user-data.template
                 else
                     # 添加DNS配置占位符
-                    sed -i '/dhcp4: yes/a\      nameservers:\n        addresses: [dns-placeholder]' http/user-data.template
+                    sed -i '/addresses: \[ip-placeholder\/24\]/a\      nameservers:\n        addresses: [dns-placeholder]' http/user-data.template
                 fi
             fi
             
@@ -150,7 +172,7 @@ EOF
                     sed -i "s/gateway4:.*/gateway4: gateway-placeholder/g" http/user-data.template
                 else
                     # 添加网关配置占位符
-                    sed -i '/dhcp4: yes/a\      gateway4: gateway-placeholder' http/user-data.template
+                    sed -i '/addresses: \[ip-placeholder\/24\]/a\      gateway4: gateway-placeholder' http/user-data.template
                 fi
             fi
         fi
@@ -168,6 +190,16 @@ configure_cloud_init() {
     
     # 替换SSH密钥占位符
     sed -i "s|ssh-key-placeholder|$(cat ssh_key.pub)|g" http/user-data
+    
+    # 配置IP地址
+    local ip_address
+    if [ "$cn_flag" = "true" ]; then
+        ip_address="10.114.51.134"
+    else
+        ip_address="10.114.51.133"
+    fi
+    log_info "设置IP地址: ${ip_address}"
+    sed -i "s|ip-placeholder|${ip_address}|g" http/user-data
     
     # 配置网关
     log_info "设置网关: 10.114.51.4"
